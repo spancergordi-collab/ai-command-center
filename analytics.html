@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Command Center - Analytics</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a1a;
+            color: #e0e0ff;
+            min-height: 100vh;
+            padding: 16px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        h1 { font-size: 1.5rem; color: #8b5cf6; }
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid #8b5cf6;
+            background: transparent;
+            color: #8b5cf6;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #8b5cf6; color: white; }
+        .btn-export { background: #8b5cf6; color: white; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        @media (min-width: 768px) {
+            .grid { grid-template-columns: 1fr 1fr; }
+        }
+        .card {
+            background: #14142b;
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .card h2 {
+            font-size: 1rem;
+            color: #a78bfa;
+            margin-bottom: 16px;
+        }
+        .chart-container {
+            position: relative;
+            height: 250px;
+        }
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .stat-box {
+            background: #1a1a35;
+            border: 1px solid #2a2a4a;
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #8b5cf6;
+        }
+        .stat-label {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 4px;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .online { background: #22c55e; }
+        .offline { background: #ef4444; }
+        .agent-list { list-style: none; }
+        .agent-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #1a1a35;
+        }
+        .agent-item:last-child { border-bottom: none; }
+        .back-link {
+            color: #8b5cf6;
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+        .back-link:hover { text-decoration: underline; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <a href="/" class="back-link">← Kembali ke Dashboard</a>
+            <h1>📊 Analytics</h1>
+        </div>
+        <button class="btn btn-export" onclick="exportCSV()">📥 Export CSV</button>
+    </div>
+
+    <div class="stats-row">
+        <div class="stat-box">
+            <div class="stat-value" id="totalAgents">-</div>
+            <div class="stat-label">Total Agents</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value" id="activeAgents">-</div>
+            <div class="stat-label">Active</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value" id="successRate">-</div>
+            <div class="stat-label">Success Rate</div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>📈 Agents Online (7 Hari)</h2>
+            <div class="chart-container">
+                <canvas id="agentsChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <h2>✅ Tasks Completed (7 Hari)</h2>
+            <div class="chart-container">
+                <canvas id="tasksChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <h2>🎯 Success Rate Trend</h2>
+            <div class="chart-container">
+                <canvas id="rateChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <h2>🤖 Status Agent</h2>
+            <ul class="agent-list" id="agentList">
+                <li class="loading">Loading...</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        async function fetchData() {
+            try {
+                const [stats, history, agents] = await Promise.all([
+                    fetch(API_BASE + '/api/dashboard/stats').then(r => r.json()),
+                    fetch(API_BASE + '/api/stats/history').then(r => r.json()),
+                    fetch(API_BASE + '/api/agents').then(r => r.json())
+                ]);
+                return { stats, history, agents };
+            } catch (e) {
+                console.error('Fetch error:', e);
+                return null;
+            }
+        }
+
+        function createChart(canvasId, labels, data, color, label) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 4,
+                        pointBackgroundColor: color
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { 
+                            grid: { color: '#1a1a35' },
+                            ticks: { color: '#888', font: { size: 10 } }
+                        },
+                        y: { 
+                            grid: { color: '#1a1a35' },
+                            ticks: { color: '#888' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function exportCSV() {
+            window.open(API_BASE + '/api/export/csv', '_blank');
+        }
+
+        async function init() {
+            const data = await fetchData();
+            if (!data) {
+                document.getElementById('agentList').innerHTML = '<li class="loading">Gagal memuat data</li>';
+                return;
+            }
+
+            // Update stats
+            document.getElementById('totalAgents').textContent = data.stats.agents.total;
+            document.getElementById('activeAgents').textContent = data.stats.agents.active;
+            document.getElementById('successRate').textContent = data.stats.success_rate + '%';
+
+            // Charts
+            const labels = data.history.history.map(h => h.date.slice(5));
+            createChart('agentsChart', labels, data.history.history.map(h => h.agents_online), '#8b5cf6', 'Agents Online');
+            createChart('tasksChart', labels, data.history.history.map(h => h.tasks_completed), '#22c55e', 'Tasks Completed');
+            createChart('rateChart', labels, data.history.history.map(h => h.success_rate), '#f59e0b', 'Success Rate (%)');
+
+            // Agent list
+            const agentList = document.getElementById('agentList');
+            agentList.innerHTML = data.agents.map(agent => `
+                <li class="agent-item">
+                    <span>
+                        <span class="status-dot ${agent.status === 'online' ? 'online' : 'offline'}"></span>
+                        ${agent.name}
+                    </span>
+                    <span style="color:#888;font-size:0.8rem">${agent.tasks_completed} tasks</span>
+                </li>
+            `).join('');
+        }
+
+        init();
+    </script>
+</body>
+</html>

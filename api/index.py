@@ -156,6 +156,51 @@ class handler(BaseHTTPRequestHandler):
             self.send_json(data)
             return
         
+        # NEW: Export data as CSV
+        if path == "/api/export/csv":
+            conn = get_db()
+            agents = conn.execute("SELECT * FROM agents").fetchall()
+            tasks = conn.execute("SELECT * FROM tasks").fetchall()
+            conn.close()
+            
+            # Build CSV
+            csv_lines = []
+            csv_lines.append("TYPE,ID,NAME,STATUS,TASKS_RUNNING,TASKS_COMPLETED,LAST_ACTIVE")
+            for agent in agents:
+                csv_lines.append(f"AGENT,{agent['id']},{agent['name']},{agent['status']},{agent['tasks_running']},{agent['tasks_completed']},{agent['last_active']}")
+            
+            csv_lines.append("")
+            csv_lines.append("TYPE,ID,AGENT_ID,NAME,STATUS,PROGRESS,STARTED_AT")
+            for task in tasks:
+                csv_lines.append(f"TASK,{task['id']},{task['agent_id']},{task['name']},{task['status']},{task['progress']},{task['started_at']}")
+            
+            csv_content = "\n".join(csv_lines)
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'text/csv')
+            self.send_header('Content-Disposition', 'attachment; filename="ai_command_center_export.csv"')
+            self.end_headers()
+            self.wfile.write(csv_content.encode())
+            return
+        
+        # NEW: Stats history for charts (mock data)
+        if path == "/api/stats/history":
+            import random
+            from datetime import datetime, timedelta
+            
+            history = []
+            for i in range(7):
+                date = (datetime.now() - timedelta(days=6-i)).strftime("%Y-%m-%d")
+                history.append({
+                    "date": date,
+                    "agents_online": random.randint(5, 8),
+                    "tasks_completed": random.randint(10, 30),
+                    "success_rate": round(random.uniform(70, 95), 1)
+                })
+            
+            self.send_json({"history": history})
+            return
+        
         # Default response
         self.send_response(404)
         self.end_headers()
